@@ -1,6 +1,6 @@
 - hosts: all
   vars:
-    build_docker_image: no
+    build_docker_image: yes
     show_container_details: no
     launch_container: yes
     pull_project: yes
