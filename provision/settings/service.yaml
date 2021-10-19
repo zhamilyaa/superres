@@ -53,3 +53,8 @@ development:
 #      rasters_folder: "/storage/rasters"
 #      media_folder: "/storage/media"
 
+production:
+  PROJECT:
+    dirs:
+      cache_folder: "/mnt/efs/fs1/caches"
+      data_folder: "/nfs/storage/data"
