@@ -1,0 +1,47 @@
+default:
+  pre: "{{docker_service}}"
+
+  vars:
+    name_prefix: "{{project_name}}"
+    watchdog:
+      all: yes
+  configs:
+    server:
+      command: python -m app
+      ports:
+        - "5001:5000"
+
+#    do_something:
+#      celery_worker:
+#        queues: [ 'do_something' ]
+#        concurrency: 3
+#        app: app.celery_worker
+#
+#    new_tasks:
+#      celery_worker:
+#        queues: ['new_tasks']
+#        concurrency: 5
+#        app: app.celery_worker
+#
+#    resolution:
+#      celery_worker:
+#        queues: ['resolution']
+#        concurrency: 2
+#        app: app.celery_worker
+
+#    flower:
+#      command: celery --app app flower --hostname imagiflow_flower --conf=app/flowerconfig.py
+#      ports:
+#        - "5556:5556"
+#      env:
+#        FLOWER_PORT: "5556"
+#        AMQP_USERNAME: "{{infra.RABBITMQ.user}}"
+#        AMQP_PASSWORD: "{{infra.RABBITMQ.password}}"
+#        AMQP_HOST: "{{infra.RABBITMQ.hostname}}"
+#        AMQP_PORT: "{{infra.RABBITMQ.port}}"
+#        AMQP_ADMIN_USERNAME: "{{infra.RABBITMQ.user}}"
+#        AMQP_ADMIN_PASSWORD: "{{infra.RABBITMQ.password}}"
+#        AMQP_ADMIN_HOST: "{{infra.RABBITMQ.hostname}}"
+#        AMQP_ADMIN_PORT: "15673"
+#        FLOWER_BASIC_AUTH: "{{infra.RABBITMQ.user}}:{{infra.RABBITMQ.password}}"
+#

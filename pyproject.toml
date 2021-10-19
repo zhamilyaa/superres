@@ -1,0 +1,44 @@
+[tool.poetry]
+name = "suoperres"
+version = "0.1.0"
+description = ""
+authors = ["zhamilya <zhamilya.saparova@nu.edu.kz>"]
+repository = "git@github.com:zhamilyaa/superres.git"
+
+[tool.poetry.dependencies]
+python = "~3.8"
+toml = "^0.10.2"
+asteval = "^0.9.21"
+boltons = "^20.2.1"
+click = "^7.1.2"
+more-itertools = "^8.6.0"
+python-box = "^5.2.0"
+pyyaml = "^5.3.1"
+taskipy = "^1.6.0"
+tomlkit = "^0.7.0"
+jinja2 = "^2.11.2"
+watchdog = "^1.0.2"
+argh = "^0.26.2"
+docker = "^5.0.0"
+ansible = "^4.3.0"
+fire = "^0.4.0"
+omegaconf = "^2.1.0"
+python-dotenv = "^0.19.0"
+importlib-metadata = "^4.6.3"
+rasterio = "^1.2.6"
+opencv-python = "^4.5.3"
+matplotlib = "^3.4.3"
+Shapely = "^1.7.1"
+scipy = "^1.7.1"
+Fiona = "^1.8.20"
+geopandas = "^0.10.0"
+celery = "^5.1.2"
+redis = "^3.5.3"
+flower = "^1.0.0"
+
+
+[tool.poetry.dev-dependencies]
+
+[build-system]
+requires = ["poetry>=1"]
+build-backend = "poetry.masonry.api"
