@@ -12,7 +12,7 @@ all:
       ansible_host: 54.93.234.138
       ansible_user: ubuntu
       #      ansible_python_interpreter: "/usr/bin/python3"
-      ansible_python_interpreter: "/home/ubuntu/.cache/pypoetry/virtualenvs/imagiflow-mfGYrIIF-py3.8/bin/python"
+      ansible_python_interpreter: "/home/ubuntu/.cache/pypoetry/virtualenvs/suoperres-n3Ouuj1Q-py3.8/bin/python"
       project_folder: "/home/ubuntu/egistic/superres"
       ansible_ssh_private_key_file: "~/Documents/egistic.pem"
       key_file: "~/.ssh/zhamilya_rsa"
