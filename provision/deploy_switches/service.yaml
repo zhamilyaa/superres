@@ -8,8 +8,7 @@ default:
   configs:
     server:
       command: python -m app
-      ports:
-        - "5001:5000"
+
 
 #    do_something:
 #      celery_worker:
@@ -45,3 +44,19 @@ default:
 #        AMQP_ADMIN_PORT: "15673"
 #        FLOWER_BASIC_AUTH: "{{infra.RABBITMQ.user}}:{{infra.RABBITMQ.password}}"
 #
+development:
+  configs:
+    server:
+      ports:
+        - "5001:5000"
+
+production:
+  configs:
+    server:
+      ports:
+        - "5001:5000"
+      networks:
+        - name: "{{project_name}}_network"
+        - name: imagiflow_network
+
+

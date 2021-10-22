@@ -1,3 +1,7 @@
+import sys
+
+import geopandas as gpd
+import shapely.wkt as shwkt
 import shapely.wkt
 import shapely.geometry as shg
 import os
@@ -17,6 +21,7 @@ from box import Box
 import pickle
 from rasterio.merge import merge as merge_tool
 from pathlib import Path
+import json
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -28,23 +33,31 @@ logger.addHandler(handler)
 from flask import Flask, render_template, request, render_template_string
 
 app = Flask(__name__)
+path = Path(__file__).absolute().parents[1]
 
 
 # CROP POLYGON GEOJSON FROM FP2 FILE
 def crop(polygon: shg.Polygon, image_path, image_crs):
-    # todo: save polygon to file.
-
-    write = "gdalwarp -overwrite " + str(image_path) + " " + str(
-        image_path) + f" -s_srs {image_crs} -t_srs EPSG:3857"  # todo change dst path
-    os.system(write)
     new_name = hashlib.md5(str(image_path).encode('utf-8')).hexdigest()
-    input_path = Path(__file__).absolute().parents[1]
 
-    logger.info(f"CROPPED POLYGON {str(new_name)}")
-    cut = "gdalwarp -overwrite -crop_to_cutline -cutline " + str(polygon) + " -t_srs EPSG:3857 " + str(
-        image_path) + " " + str(input_path) + str(new_name) + ".tiff"
-    os.system(cut)
-    return input_path, new_name
+    working_folder = Path('wkt').absolute()
+    working_folder.mkdir(exist_ok=True)
+
+    geom = gpd.GeoSeries([polygon], crs='epsg:3857')
+    geom_path = working_folder.joinpath(f'{new_name}.geojson')
+    geom.to_file(str(geom_path), driver='GeoJSON')
+
+    converted_image_path = working_folder.joinpath(f'{new_name}.tiff')
+    write = f'gdalwarp -overwrite {str(image_path)} {converted_image_path} -s_srs {image_crs} -t_srs EPSG:3857'
+    print(write)
+    os.system(write)
+
+    tiles_folder = Path('cropped_tci').absolute()
+    tiles_folder.mkdir(exist_ok=True)
+    cropped_image_path = tiles_folder.joinpath(f'{new_name}_cropped.tiff')
+    tiles = f'gdalwarp -overwrite -crop_to_cutline -cutline {geom_path} -t_srs EPSG:3857 {converted_image_path} {cropped_image_path}'
+    os.system(tiles)
+    return cropped_image_path
 
 
 # SPLIT POLYGON INTO MANY POLYGONS
@@ -126,23 +139,18 @@ def form():
     return render_template('form.html')
 
 
-@app.route('/app/v1/perform_sr', methods=['POST'])
-def perform_sr():
-    form_data = request.json
-    print(form_data)
-    polygon_wkt = form_data["geometry"]
-    polygon = shapely.wkt.loads(polygon_wkt)
-    image_path = form_data["tci_path"]
-    with rasterio.open(image_path) as ds:
+def do_sr(geometry, tci_path):
+    polygon = shapely.wkt.loads(geometry)
+    with rasterio.open(tci_path) as ds:
         crs = ds.crs
-    in_path, input_filenamee = crop(polygon, image_path, crs)
-    input_filename = str(input_filenamee) + ".tiff"
+    cropped_tci_path = crop(polygon, tci_path, crs)
     tasks = list()
+    hash_name = hashlib.md5(str(tci_path).encode('utf-8')).hexdigest()
 
     with rio.Env(OGR_SQLITE_CACHE=1024, GDAL_CACHEMAX=128, GDAL_SWATH_SIZE=128000000,
                  GDAL_MAX_RAW_BLOCK_CACHE_SIZE=128000000, VSI_CACHE=True, VSI_CACHE_SIZE=1073741824,
                  GDAL_FORCE_CACHING=True):
-        with rio.open(os.path.join(in_path, input_filename)) as inds:
+        with rio.open(cropped_tci_path) as inds:
             bounds = inds.bounds
             geom = box(*bounds)
             print(geom)
@@ -158,18 +166,17 @@ def perform_sr():
                 buff.append(buffered)
 
             gdf = geopandas.GeoDataFrame(geometry=buff, crs="EPSG:3857")
-            shapefile_name = str(input_filenamee) + ".shp"
+            shapefile_name = str(hash_name) + ".shp"
             gdf.to_file(shapefile_name)
-            pew = Path(__file__).absolute().parents[1].joinpath(shapefile_name)
-            image = Path(__file__).absolute().parents[1].joinpath(str(input_filename))
+            list_of_tiles = Path(__file__).absolute().parents[1].joinpath(shapefile_name)
 
-            shapefile = geopandas.read_file(pew)
+            shapefile = geopandas.read_file(list_of_tiles)
             print(shapefile)
-            with fiona.open(pew, "r") as shapefile:
+            with fiona.open(list_of_tiles, "r") as shapefile:
                 shapes = [feature["geometry"] for feature in shapefile]
             print(len(shapes))
             for i in range(len(shapes)):
-                with rasterio.open(image) as src:
+                with rasterio.open(cropped_tci_path) as src:
                     out_image, out_transform = rasterio.mask.mask(src, shapes[i:i + 1], crop=True)
                     out_meta = src.meta
 
@@ -179,9 +186,9 @@ def perform_sr():
                                  "transform": out_transform},
                                 nodata=0)
 
-                if not os.path.exists(input_filenamee):
-                    os.mkdir(input_filenamee, mode=0o755)
-                tiles_path = Path(__file__).absolute().parents[1].joinpath(input_filenamee)
+                if not os.path.exists(hash_name):
+                    os.mkdir(hash_name, mode=0o755)
+                tiles_path = Path(__file__).absolute().parents[1].joinpath(hash_name)
 
                 with rasterio.open((str(tiles_path) + '/tiles_') + str(i), "w", **out_meta) as dest:
                     dest.write(out_image)
@@ -198,7 +205,8 @@ def perform_sr():
                 #
                 #     # task = celery.group(resolution.s("./tiles/tile_" + str(i))).apply_async().get()
                 #     # print(task)
-                img = resolve_and_plot((str(tiles_path) + '/tiles_') + str(i))
+                img = resolve_and_plot(tiles_path.joinpath('tiles_' + str(i)))
+                # img = resolve_and_plot((str(tiles_path) + '/tiles_') + str(i))
                 print("RESOLUTION ENDS")
                 out_meta.update({"driver": "GTiff",
                                  "height": out_image.shape[1] * 4,
@@ -218,102 +226,20 @@ def perform_sr():
     return dict(results=str(tiles_path) + '_results')
 
 
-@app.route('/data/', methods=['POST', 'GET'])
-def data():
-    if request.method == 'GET':
-        return f"The URL /data is accessed directly. Try going to '/form' to submit form"
-    if request.method == 'POST':
-        form_data = request.form
-        logger.debug('Start')
-        polygon = form_data["Polygon Path"]
-        image = form_data["Image Path"]
-        in_path, input_filenamee = crop(polygon, image)
-        input_filename = str(input_filenamee) + ".tiff"
-        tasks = list()
-
-        with rio.Env(OGR_SQLITE_CACHE=1024, GDAL_CACHEMAX=128, GDAL_SWATH_SIZE=128000000,
-                     GDAL_MAX_RAW_BLOCK_CACHE_SIZE=128000000, VSI_CACHE=True, VSI_CACHE_SIZE=1073741824,
-                     GDAL_FORCE_CACHING=True):
-            with rio.open(os.path.join(in_path, input_filename)) as inds:
-                bounds = inds.bounds
-                geom = box(*bounds)
-                print(geom)
-                logger.info("KATANA STARTS")
-                res = katana(geom, threshold=10000)
-                print(type(res))
-                logger.info("KATANA ENDS")
-                buff = []
-                arr = []
-
-                for i in range(len(res)):
-                    buffered = res[i].buffer(800, join_style=2)
-                    buff.append(buffered)
-
-                gdf = geopandas.GeoDataFrame(geometry=buff, crs="EPSG:3857")
-                shapefile_name = str(input_filenamee) + ".shp"
-                gdf.to_file(shapefile_name)
-                pew = Path(__file__).absolute().parents[1].joinpath(shapefile_name)
-                image = Path(__file__).absolute().parents[1].joinpath(str(input_filename))
-
-                shapefile = geopandas.read_file(pew)
-                print(shapefile)
-                with fiona.open(pew, "r") as shapefile:
-                    shapes = [feature["geometry"] for feature in shapefile]
-                print(len(shapes))
-                for i in range(len(shapes)):
-                    with rasterio.open(image) as src:
-                        out_image, out_transform = rasterio.mask.mask(src, shapes[i:i + 1], crop=True)
-                        out_meta = src.meta
-
-                    out_meta.update({"driver": "GTiff",
-                                     "height": out_image.shape[1],
-                                     "width": out_image.shape[2],
-                                     "transform": out_transform},
-                                    nodata=0)
-
-                    if not os.path.exists(input_filenamee):
-                        os.mkdir(input_filenamee, mode=0o755)
-                    tiles_path = Path(__file__).absolute().parents[1].joinpath(input_filenamee)
-
-                    with rasterio.open((str(tiles_path) + '/tiles_') + str(i), "w", **out_meta) as dest:
-                        dest.write(out_image)
-
-                    print("RESOLUTION STARTS")
-
-                    #     task = resolution_task.s("./tiles/tile_" + str(i))
-                    #     tasks.append(task)
-                    #
-                    # result = celery.group(tasks).delay().get()
-                    # logger.debug(len(result))
-                    # return
-                    #
-                    #
-                    #     # task = celery.group(resolution.s("./tiles/tile_" + str(i))).apply_async().get()
-                    #     # print(task)
-                    img = resolve_and_plot((str(tiles_path) + '/tiles_') + str(i))
-                    print("RESOLUTION ENDS")
-                    out_meta.update({"driver": "GTiff",
-                                     "height": out_image.shape[1] * 4,
-                                     "width": out_image.shape[2] * 4,
-                                     "transform": out_transform * out_transform.scale(1 / 4),
-                                     "count": 3})
-                    logger.debug(img.shape)
-                    if not os.path.exists((str(tiles_path) + '_results')):
-                        os.mkdir((str(tiles_path) + '_results'), mode=0o755)
-                    with rio.open(os.path.join((str(tiles_path) + '_results'), "resolved_tile_" + str(i) + ".tif"), 'w',
-                                  **out_meta) as imgs:
-                        img = np.where(img <= 4, 0, img)
-                        imgs.write(img)
-                    new_img = export_to_tiff(
-                        os.path.join((str(tiles_path) + '_results'), "resolved_tile_" + str(i) + ".tif"), out_meta)
-
-        return render_template_string('<h2>{{form_data}}</h2>', form_data=(str(tiles_path) + '_results'))
+@app.route('/app/v1/perform_sr', methods=['POST'])
+def perform_sr():
+    form_data = request.json
+    print(form_data)
+    return do_sr(**form_data)
 
 
 def main():
-    print("hi")
+    # geometry = 'MultiPolygon (((9179005.3084421195089817 5663138.53135722782462835, 9179728.39327027834951878 5664965.2719757342711091, 9184637.75868251360952854 5662910.1887799147516489, 9187834.55476490035653114 5659599.22140887193381786, 9192591.69179225899279118 5654613.74180419929325581, 9192553.63469604030251503 5652178.087646191008389, 9190194.09473047032952309 5651683.34539534524083138, 9187035.35574430227279663 5654423.4563231049105525, 9185436.9577031098306179 5657696.36659792810678482, 9182049.87613962963223457 5660055.90656349901109934, 9180223.13552112318575382 5661996.81847066152840853, 9179005.3084421195089817 5663138.53135722782462835)))'
+    # tci_path = '/home/zhamilya/PycharmProjects/superres/T44TPR_20210926T052651_TCI.jp2'
+    # do_sr(geometry, tci_path)
+    # return
+    app.run(host='0.0.0.0', port=5000)
     return
-
     logger.debug('Start')
     polygon = "./hello.geojson"
     image = "./T42UVA_20210825T062631_TCI_10m.jp2"
@@ -430,8 +356,6 @@ def main():
 
             return
 
-
-app.run(host='0.0.0.0', port=5000)
 
 if __name__ == '__main__':
     main()
