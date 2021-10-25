@@ -233,6 +233,7 @@ def do_sr(geometry, tci_path):
                 new_img = export_to_tiff(
                     os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tif"), out_meta)
 
+    shutil.rmtree(tiles_working_folder, ignore_errors=True)
     return dict(results=resulting_path)
 
 

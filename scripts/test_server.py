@@ -1,6 +1,7 @@
 import shapely.wkt as shwkt
 import geopandas as gpd
 import requests
+from pathlib import Path
 
 
 def main():
@@ -9,9 +10,11 @@ def main():
     # geom = gpd.GeoSeries([shwkt.loads(geometry)], crs='epsg:3857')
     # geom.to_file('qweqwe.geojson', driver='GeoJSON')
     # return
+    path = Path(__file__).absolute().parents[1]
+
     out: dict = requests.post('http://superres_server:5000/app/v1/perform_sr',
                               json=dict(geometry=geometry,
-                                        tci_path='/home/zhamilya/PycharmProjects/superres/T44TPR_20210926T052651_TCI.jp2')).json()
+                                        tci_path=path.joinpath('T44TPR_20210926T052651_TCI.jp2'))).json()
     results = out['results']
     print(results)
     pass
