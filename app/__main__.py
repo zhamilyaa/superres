@@ -1,3 +1,4 @@
+import shutil
 import sys
 
 import geopandas as gpd
@@ -36,13 +37,13 @@ from flask import Flask, render_template, request, render_template_string
 
 app = Flask(__name__)
 path = Path(__file__).absolute().parents[1]
-
+storage_folder = Path(__file__).absolute().parents[5].joinpath("nfs/storage/sr")
 
 # CROP POLYGON GEOJSON FROM FP2 FILE
 def crop(polygon: shg.Polygon, image_path, image_crs):
-    new_name = hashlib.md5(str(image_path).encode('utf-8')).hexdigest()
+    new_name = hashlib.md5((str(image_path)+str(polygon)).encode('utf-8')).hexdigest()
 
-    working_folder = Path('wkt').absolute()
+    working_folder = Path(storage_folder.joinpath('wkt')).absolute()
     working_folder.mkdir(exist_ok=True)
 
     geom = gpd.GeoSeries([polygon], crs='epsg:3857')
@@ -54,11 +55,12 @@ def crop(polygon: shg.Polygon, image_path, image_crs):
     print(write)
     os.system(write)
 
-    tiles_folder = Path('cropped_tci').absolute()
+    tiles_folder = Path(storage_folder.joinpath('cropped_tci')).absolute()
     tiles_folder.mkdir(exist_ok=True)
     cropped_image_path = tiles_folder.joinpath(f'{new_name}_cropped.tiff')
     tiles = f'gdalwarp -overwrite -crop_to_cutline -cutline {geom_path} -t_srs EPSG:3857 {converted_image_path} {cropped_image_path}'
     os.system(tiles)
+    shutil.rmtree(working_folder, ignore_errors=True)
     return cropped_image_path
 
 
@@ -147,7 +149,7 @@ def do_sr(geometry, tci_path):
         crs = ds.crs
     cropped_tci_path = crop(polygon, tci_path, crs)
     tasks = list()
-    hash_name = hashlib.md5(str(tci_path).encode('utf-8')).hexdigest()
+    hash_name = hashlib.md5((str(tci_path)+str(polygon)).encode('utf-8')).hexdigest()
 
     with rio.Env(OGR_SQLITE_CACHE=1024, GDAL_CACHEMAX=128, GDAL_SWATH_SIZE=128000000,
                  GDAL_MAX_RAW_BLOCK_CACHE_SIZE=128000000, VSI_CACHE=True, VSI_CACHE_SIZE=1073741824,
@@ -168,9 +170,12 @@ def do_sr(geometry, tci_path):
                 buff.append(buffered)
 
             gdf = geopandas.GeoDataFrame(geometry=buff, crs="EPSG:3857")
-            shapefile_name = str(hash_name) + ".shp"
-            gdf.to_file(shapefile_name)
-            list_of_tiles = Path(__file__).absolute().parents[1].joinpath(shapefile_name)
+
+            tiles_working_folder = Path(storage_folder.joinpath('shp_tiles')).absolute()
+            tiles_working_folder.mkdir(exist_ok=True)
+            list_of_tiles = tiles_working_folder.joinpath(str(hash_name) + ".shp")
+            gdf.to_file(list_of_tiles)
+            # list_of_tiles = Path(__file__).absolute().parents[1].joinpath(shapefile_name)
 
             shapefile = geopandas.read_file(list_of_tiles)
             print(shapefile)
@@ -188,11 +193,11 @@ def do_sr(geometry, tci_path):
                                  "transform": out_transform},
                                 nodata=0)
 
-                if not os.path.exists(hash_name):
-                    os.mkdir(hash_name, mode=0o755)
-                tiles_path = Path(__file__).absolute().parents[1].joinpath(hash_name)
+                # if not os.path.exists(hash_name):
+                #     os.mkdir(hash_name, mode=0o755)
+                # tiles_path = Path(__file__).absolute().parents[1].joinpath(hash_name)
 
-                with rasterio.open((str(tiles_path) + '/tiles_') + str(i), "w", **out_meta) as dest:
+                with rasterio.open((str(tiles_working_folder) + '/tiles_') + str(i), "w", **out_meta) as dest:
                     dest.write(out_image)
 
                 print("RESOLUTION STARTS")
@@ -207,7 +212,7 @@ def do_sr(geometry, tci_path):
                 #
                 #     # task = celery.group(resolution.s("./tiles/tile_" + str(i))).apply_async().get()
                 #     # print(task)
-                img = resolve_and_plot(tiles_path.joinpath('tiles_' + str(i)))
+                img = resolve_and_plot(tiles_working_folder.joinpath('tiles_' + str(i)))
                 # img = resolve_and_plot((str(tiles_path) + '/tiles_') + str(i))
                 print("RESOLUTION ENDS")
                 out_meta.update({"driver": "GTiff",
@@ -216,16 +221,19 @@ def do_sr(geometry, tci_path):
                                  "transform": out_transform * out_transform.scale(1 / 4),
                                  "count": 3})
                 logger.debug(img.shape)
-                if not os.path.exists((str(tiles_path) + '_results')):
-                    os.mkdir((str(tiles_path) + '_results'), mode=0o755)
-                with rio.open(os.path.join((str(tiles_path) + '_results'), "resolved_tile_" + str(i) + ".tif"), 'w',
+
+                resulting_path = Path(storage_folder.joinpath(f'{hash_name}_results')).absolute()
+                resulting_path.mkdir(exist_ok=True)
+                # if not os.path.exists((str(tiles_path) + '_results')):
+                #     os.mkdir((str(tiles_path) + '_results'), mode=0o755)
+                with rio.open(os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tif"), 'w',
                               **out_meta) as imgs:
                     img = np.where(img <= 4, 0, img)
                     imgs.write(img)
                 new_img = export_to_tiff(
-                    os.path.join((str(tiles_path) + '_results'), "resolved_tile_" + str(i) + ".tif"), out_meta)
+                    os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tif"), out_meta)
 
-    return dict(results=str(tiles_path) + '_results')
+    return dict(results=resulting_path)
 
 
 @app.route('/app/v1/perform_sr', methods=['POST'])
