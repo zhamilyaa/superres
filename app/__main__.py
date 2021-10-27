@@ -37,13 +37,14 @@ from flask import Flask, render_template, request, render_template_string
 
 app = Flask(__name__)
 path = Path(__file__).absolute().parents[1]
-storage_folder = Path(__file__).absolute().parents[5].joinpath("nfs/storage/sr")
+storage_folder = Path(settings.PROJECT.dirs.sr_folder)
+# storage_folder = path
 
 # CROP POLYGON GEOJSON FROM FP2 FILE
 def crop(polygon: shg.Polygon, image_path, image_crs):
     new_name = hashlib.md5((str(image_path)+str(polygon)).encode('utf-8')).hexdigest()
 
-    working_folder = Path(storage_folder.joinpath('wkt')).absolute()
+    working_folder = Path(storage_folder.joinpath(str(new_name))).absolute()
     working_folder.mkdir(exist_ok=True)
 
     geom = gpd.GeoSeries([polygon], crs='epsg:3857')
@@ -55,7 +56,7 @@ def crop(polygon: shg.Polygon, image_path, image_crs):
     print(write)
     os.system(write)
 
-    tiles_folder = Path(storage_folder.joinpath('cropped_tci')).absolute()
+    tiles_folder = Path(storage_folder.joinpath(str(new_name)+'_cropped_tci')).absolute()
     tiles_folder.mkdir(exist_ok=True)
     cropped_image_path = tiles_folder.joinpath(f'{new_name}_cropped.tiff')
     tiles = f'gdalwarp -overwrite -crop_to_cutline -cutline {geom_path} -t_srs EPSG:3857 {converted_image_path} {cropped_image_path}'
@@ -170,8 +171,8 @@ def do_sr(geometry, tci_path):
                 buff.append(buffered)
 
             gdf = geopandas.GeoDataFrame(geometry=buff, crs="EPSG:3857")
-
-            tiles_working_folder = Path(storage_folder.joinpath('shp_tiles')).absolute()
+            logger.debug("CREATED SHAPE TILES FOLDER")
+            tiles_working_folder = Path(storage_folder.joinpath(str(hash_name)+'_files')).absolute()
             tiles_working_folder.mkdir(exist_ok=True)
             list_of_tiles = tiles_working_folder.joinpath(str(hash_name) + ".shp")
             gdf.to_file(list_of_tiles)
@@ -200,7 +201,7 @@ def do_sr(geometry, tci_path):
                 with rasterio.open((str(tiles_working_folder) + '/tiles_') + str(i), "w", **out_meta) as dest:
                     dest.write(out_image)
 
-                print("RESOLUTION STARTS")
+                print(f"RESOLUTION STARTS {i+1}/{len(shapes)}")
 
                 #     task = resolution_task.s("./tiles/tile_" + str(i))
                 #     tasks.append(task)
@@ -214,7 +215,7 @@ def do_sr(geometry, tci_path):
                 #     # print(task)
                 img = resolve_and_plot(tiles_working_folder.joinpath('tiles_' + str(i)))
                 # img = resolve_and_plot((str(tiles_path) + '/tiles_') + str(i))
-                print("RESOLUTION ENDS")
+                print(f"RESOLUTION ENDS {i+1}/{len(shapes)}")
                 out_meta.update({"driver": "GTiff",
                                  "height": out_image.shape[1] * 4,
                                  "width": out_image.shape[2] * 4,
@@ -226,25 +227,31 @@ def do_sr(geometry, tci_path):
                 resulting_path.mkdir(exist_ok=True)
                 # if not os.path.exists((str(tiles_path) + '_results')):
                 #     os.mkdir((str(tiles_path) + '_results'), mode=0o755)
-                with rio.open(os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tif"), 'w',
+                with rio.open(os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tiff"), 'w',
                               **out_meta) as imgs:
                     img = np.where(img <= 4, 0, img)
                     imgs.write(img)
                 new_img = export_to_tiff(
-                    os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tif"), out_meta)
+                    os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tiff"), out_meta)
 
     shutil.rmtree(tiles_working_folder, ignore_errors=True)
-    return dict(results=resulting_path)
+    shutil.rmtree(storage_folder.joinpath(str(hash_name)+'_cropped_tci'))
+    logger.debug("DELETED  TCI FOLDER")
+    logger.debug("DELETED SHAPE TILES FOLDER")
+
+    return dict(results=str(resulting_path))
 
 
 @app.route('/app/v1/perform_sr', methods=['POST'])
 def perform_sr():
+    print("hello zhamilya")
     form_data = request.json
-    print(form_data)
+    print("here i am")
     return do_sr(**form_data)
 
 
 def main():
+    print("hello")
     # geometry = 'MultiPolygon (((9179005.3084421195089817 5663138.53135722782462835, 9179728.39327027834951878 5664965.2719757342711091, 9184637.75868251360952854 5662910.1887799147516489, 9187834.55476490035653114 5659599.22140887193381786, 9192591.69179225899279118 5654613.74180419929325581, 9192553.63469604030251503 5652178.087646191008389, 9190194.09473047032952309 5651683.34539534524083138, 9187035.35574430227279663 5654423.4563231049105525, 9185436.9577031098306179 5657696.36659792810678482, 9182049.87613962963223457 5660055.90656349901109934, 9180223.13552112318575382 5661996.81847066152840853, 9179005.3084421195089817 5663138.53135722782462835)))'
     # tci_path = '/home/zhamilya/PycharmProjects/superres/T44TPR_20210926T052651_TCI.jp2'
     # do_sr(geometry, tci_path)

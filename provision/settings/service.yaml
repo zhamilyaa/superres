@@ -49,7 +49,7 @@ development:
   PROJECT:
     dirs:
       cache_folder: "/Users/zhamilya/Desktop/storage/caches"
-      data_folder: "/Users/zhamilya/Desktop/storage/data"
+      sr_folder: "/Users/zhamilya/Desktop/storage/sr"
 #      rasters_folder: "/storage/rasters"
 #      media_folder: "/storage/media"
 
@@ -57,4 +57,4 @@ production:
   PROJECT:
     dirs:
       cache_folder: "/mnt/efs/fs1/caches"
-      data_folder: "/nfs/storage/data"
+      sr_folder: "/nfs/storage/sr"

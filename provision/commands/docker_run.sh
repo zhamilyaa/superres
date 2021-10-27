@@ -12,6 +12,6 @@ docker run  \
 	--env NUMEXPR_MAX_THREADS=8  \
 	--network superres_network  \
 	--volume /Users/zhamilya/Desktop/storage/caches:/Users/zhamilya/Desktop/storage/caches  \
-	--volume /Users/zhamilya/Desktop/storage/data:/Users/zhamilya/Desktop/storage/data  \
+	--volume /Users/zhamilya/Desktop/storage/sr:/Users/zhamilya/Desktop/storage/sr  \
 	--volume /home/zhamilya/PycharmProjects/superres:/home/zhamilya/PycharmProjects/superres  \
 	--workdir /home/zhamilya/PycharmProjects/superres "$@"
