@@ -72,7 +72,7 @@ def crop(polygon: shg.Polygon, image_path, image_crs):
     processed_path = tiles_folder.joinpath(f'{new_name}_final.tiff')
     change_epsg = f'gdal_translate -b 1 -b 2 -b 3 -of GTiff -a_srs EPSG:3857 {cropped_image_path} {processed_path}'
     os.system(change_epsg)
-    # shutil.rmtree(working_folder, ignore_errors=True)
+    shutil.rmtree(working_folder, ignore_errors=True)
     return processed_path
 
 
@@ -281,8 +281,8 @@ def do_sr(geometry, tci_path):
                 new_img = export_to_tiff(
                     os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tiff"), out_meta)
 
-    # shutil.rmtree(tiles_working_folder, ignore_errors=True)
-    # shutil.rmtree(storage_folder.joinpath(str(hash_name)+'_cropped_tci'))
+    shutil.rmtree(tiles_working_folder, ignore_errors=True)
+    shutil.rmtree(storage_folder.joinpath(str(hash_name)+'_cropped_tci'))
     logger.debug("DELETED  TCI FOLDER")
     logger.debug("DELETED SHAPE TILES FOLDER")
     return dict(results=str(resulting_path))
