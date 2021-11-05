@@ -37,7 +37,7 @@ default:
 
 development: &development
   configs:
-    portainer: ../containers/infra/portainer.yaml
+      portainer: ../containers/infra/portainer.yaml
     #    pgweb: containers/infra/pgweb.yaml
 #    pgadmin: ../containers/infra/pgadmin.yaml
 
