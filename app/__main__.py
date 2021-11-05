@@ -41,8 +41,6 @@ storage_folder = Path(settings.PROJECT.dirs.sr_folder)
 # storage_folder = path
 
 
-
-
 # CROP POLYGON GEOJSON FROM FP2 FILE
 def crop(polygon: shg.Polygon, image_path, image_crs):
     new_name = hashlib.md5((str(image_path)+str(polygon)).encode('utf-8')).hexdigest()
@@ -55,17 +53,27 @@ def crop(polygon: shg.Polygon, image_path, image_crs):
     geom.to_file(str(geom_path), driver='GeoJSON')
 
     converted_image_path = working_folder.joinpath(f'{new_name}.tiff')
-    write = f'gdalwarp -overwrite -r cubic {str(image_path)} {converted_image_path} -s_srs {image_crs} -t_srs EPSG:3857'
+    write = f'gdalwarp -overwrite -r cubic {str(image_path)} {converted_image_path} -s_srs {image_crs} -t_srs {image_crs}'
     print(write)
     os.system(write)
 
     tiles_folder = Path(storage_folder.joinpath(str(new_name)+'_cropped_tci')).absolute()
     tiles_folder.mkdir(exist_ok=True)
     cropped_image_path = tiles_folder.joinpath(f'{new_name}_cropped.tiff')
-    tiles = f'gdalwarp -overwrite -crop_to_cutline -cutline {geom_path} -t_srs EPSG:3857 {converted_image_path} {cropped_image_path}'
-    os.system(tiles)
+    crop_alpha = f'gdalwarp -overwrite -cutline {geom_path} -crop_to_cutline -dstalpha -t_srs EPSG:3857 {converted_image_path} {cropped_image_path}'
+    os.system(crop_alpha)
+
+    with rasterio.open(cropped_image_path) as src:
+        meta = src.meta
+
+    meta.update(nodata=255)
+    export_to_tiff_light(cropped_image_path, meta)
+
+    processed_path = tiles_folder.joinpath(f'{new_name}_final.tiff')
+    change_epsg = f'gdal_translate -b 1 -b 2 -b 3 -of GTiff -a_srs EPSG:3857 {cropped_image_path} {processed_path}'
+    os.system(change_epsg)
     # shutil.rmtree(working_folder, ignore_errors=True)
-    return cropped_image_path
+    return processed_path
 
 
 # SPLIT POLYGON INTO MANY POLYGONS
@@ -111,19 +119,47 @@ def katana(geometry, threshold, count=0):
 
 # EROSION
 def export_to_tiff(name, meta):
+
     with rio.open(name) as a:
         mask = a.read()
-        mask = np.where(mask.sum(axis=0) == 0, 0, 1)
-        res = ndimage.binary_erosion(mask, structure=np.ones((1, 1)))
+        mask = np.where(mask.sum(axis=0) >= 251*3, 0, 1)
+        res = ndimage.binary_erosion(mask, structure=np.ones((21, 21)))
         zh = np.where(res == 1, a.read(), 255)
-        # mask = np.where(mask.sum(axis=1) == 0, 0, 1)
-        # res = ndimage.binary_erosion(mask, structure=np.ones((13, 13)))
-        # zh = np.where(res == 1, a.read(), 0)
 
     with rio.open(name, 'w', **meta) as dst:
+        meta.update(nodata=255)
         dst.write(np.array(zh).astype(rio.uint8))
+        print("salem", meta)
 
     return np.array(zh).astype(rio.uint8)
+
+
+# def export_to_tiff_light(name, meta):
+#     with rio.open(name) as a:
+#         mask = a.read()
+#         mask = np.where(mask.sum(axis=0) == 0, 0, 1)
+#         res = ndimage.binary_erosion(mask, structure=np.ones((23, 23)))
+#         zh = np.where(res == 1, a.read(), 255)
+#
+#     with rio.open(name, 'w', **meta) as dst:
+#         print(meta)
+#         dst.write(np.array(zh))
+#
+#     return np.array(zh)
+
+def export_to_tiff_light(name, meta):
+    meta.update(nodata=255)
+    with rio.open(name) as a:
+        mask = a.read()
+        print(mask.shape)
+        mask = np.where(mask.sum(axis=0) == 0, 255, a.read())
+
+    with rio.open(name, 'w', **meta) as dst:
+        print(meta)
+        dst.write(np.array(mask))
+
+    return np.array(mask)
+
 
 
 def perform_merge(dss, method='last', **kwargs):
@@ -162,29 +198,24 @@ def do_sr(geometry, tci_path):
                  GDAL_MAX_RAW_BLOCK_CACHE_SIZE=128000000, VSI_CACHE=True, VSI_CACHE_SIZE=1073741824,
                  GDAL_FORCE_CACHING=True):
         with rio.open(cropped_tci_path) as inds:
+            # meta = inds.meta
+            # meta.update(nodata=255)
+            # export_to_tiff(cropped_tci_path,meta)
             bounds = inds.bounds
             geom = box(*bounds)
             print(geom)
             logger.info("KATANA STARTS")
-            res = katana(geom, threshold=10000)
+            res = katana(polygon, threshold=10000)
             print(type(res))
             logger.info("KATANA ENDS")
             buff = []
             arr = []
-            # gdf = geopandas.GeoDataFrame(geometry=res, crs="EPSG:3857")
-            # print(gdf)
-            # list_of_tiles = './gdf.shp'
-            # gdf.to_file(list_of_tiles)
-            # shapefile = geopandas.read_file(list_of_tiles)
-            # print(shapefile)
-            # with fiona.open(list_of_tiles, "r") as shapefile:
-            #     shapes = [feature["geometry"] for feature in shapefile]
 
             for i in range(len(res)):
-                buffered = res[i].buffer(1500, join_style=2)
+                buffered = res[i].buffer(800, join_style=2)
                 buff.append(buffered)
 
-            gdf = geopandas.GeoDataFrame(geometry=res, crs="EPSG:3857")
+            gdf = geopandas.GeoDataFrame(geometry=buff, crs="EPSG:3857")
             logger.debug("CREATED SHAPE TILES FOLDER")
             tiles_working_folder = Path(storage_folder.joinpath(str(hash_name)+'_files')).absolute()
             tiles_working_folder.mkdir(exist_ok=True)
@@ -197,21 +228,17 @@ def do_sr(geometry, tci_path):
             with fiona.open(list_of_tiles, "r") as shapefile:
                 shapes = [feature["geometry"] for feature in shapefile]
             print(len(shapes))
+
             for i in range(len(shapes)):
                 with rasterio.open(cropped_tci_path) as src:
-                    out_image, out_transform = rasterio.mask.mask(src, shapes[i:i + 1], crop=True, nodata=0, pad=True)
+                    out_image, out_transform = rasterio.mask.mask(src, shapes[i:i + 1], crop=True)
                     out_meta = src.meta
-                    hello_meta = src.meta
 
                 out_meta.update({"driver": "GTiff",
                                  "height": out_image.shape[1],
                                  "width": out_image.shape[2],
-                                 "transform": out_transform},nodata=255)
-
-                hello_meta.update({"driver": "GTiff",
-                                 "height": out_image.shape[1],
-                                 "width": out_image.shape[2],
-                                 "transform": out_transform})
+                                 "transform": out_transform},
+                                )
 
                 # if not os.path.exists(hash_name):
                 #     os.mkdir(hash_name, mode=0o755)
@@ -219,8 +246,6 @@ def do_sr(geometry, tci_path):
 
                 with rasterio.open((str(tiles_working_folder) + '/tiles_') + str(i), "w", **out_meta) as dest:
                     dest.write(out_image)
-                new_img = export_to_tiff(
-                    os.path.join((str(tiles_working_folder) + '/tiles_') + str(i)), out_meta)
 
                 print(f"RESOLUTION STARTS {i+1}/{len(shapes)}")
 
@@ -234,7 +259,6 @@ def do_sr(geometry, tci_path):
                 #
                 #     # task = celery.group(resolution.s("./tiles/tile_" + str(i))).apply_async().get()
                 #     # print(task)
-
                 img = resolve_and_plot(tiles_working_folder.joinpath('tiles_' + str(i)))
                 # img = resolve_and_plot((str(tiles_path) + '/tiles_') + str(i))
                 print(f"RESOLUTION ENDS {i+1}/{len(shapes)}")
@@ -244,6 +268,7 @@ def do_sr(geometry, tci_path):
                                  "transform": out_transform * out_transform.scale(1 / 4),
                                  "count": 3})
                 logger.debug(img.shape)
+                logger.debug(f"META:{out_meta}")
 
                 resulting_path = Path(storage_folder.joinpath(f'{hash_name}_results')).absolute()
                 resulting_path.mkdir(exist_ok=True)
@@ -251,7 +276,7 @@ def do_sr(geometry, tci_path):
                 #     os.mkdir((str(tiles_path) + '_results'), mode=0o755)
                 with rio.open(os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tiff"), 'w',
                               **out_meta) as imgs:
-                    img = np.where(img <= 4, 0, img)
+                    # img = np.where(img <= 4, 0, img)
                     imgs.write(img)
                 new_img = export_to_tiff(
                     os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tiff"), out_meta)
@@ -260,7 +285,6 @@ def do_sr(geometry, tci_path):
     # shutil.rmtree(storage_folder.joinpath(str(hash_name)+'_cropped_tci'))
     logger.debug("DELETED  TCI FOLDER")
     logger.debug("DELETED SHAPE TILES FOLDER")
-
     return dict(results=str(resulting_path))
 
 
@@ -330,7 +354,7 @@ def main():
                                  "height": out_image.shape[1],
                                  "width": out_image.shape[2],
                                  "transform": out_transform},
-                                nodata=0)
+                                nodata=255)
 
                 if not os.path.exists(input_filenamee):
                     os.mkdir(input_filenamee, mode=0o755)
@@ -357,16 +381,16 @@ def main():
                                  "height": out_image.shape[1] * 4,
                                  "width": out_image.shape[2] * 4,
                                  "transform": out_transform * out_transform.scale(1 / 4),
-                                 "count": 3})
+                                 "count": 3},nodata=255)
                 logger.debug(img.shape)
                 if not os.path.exists((str(tiles_path) + '_results')):
                     os.mkdir((str(tiles_path) + '_results'), mode=0o755)
                 with rio.open(os.path.join((str(tiles_path) + '_results'), "resolved_tile_" + str(i) + ".tif"), 'w',
                               **out_meta) as imgs:
-                    img = np.where(img <= 4, 0, img)
+                    # img = np.where(img <= 4, 0, img)
                     imgs.write(img)
-                new_img = export_to_tiff(
-                    os.path.join((str(tiles_path) + '_results'), "resolved_tile_" + str(i) + ".tif"), out_meta)
+                # new_img = export_to_tiff(
+                #     os.path.join((str(tiles_path) + '_results'), "resolved_tile_" + str(i) + ".tif"), out_meta)
 
             #     mem_file = rio.MemoryFile()
             #     # meta = Box(inds.meta)
