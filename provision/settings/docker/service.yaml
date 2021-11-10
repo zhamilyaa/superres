@@ -16,6 +16,7 @@ default:
         volumes.append(folder+':'+folder)
 
     add(project_folder)
+    add('/nfs/storage/data/Crop_Field_Segmentation')
     proj_settings=Box(proj_settings,default_box=True)
     for dir in proj_settings.dirs.values():
         add(dir)

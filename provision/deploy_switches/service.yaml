@@ -59,4 +59,7 @@ production:
         - name: "{{project_name}}_network"
         - name: imagiflow_network
 
+      volumes:
+          - "/nfs/storage/data/Crop_Field_Segmentation:/nfs/storage/data/Crop_Field_Segmentation"
+
 
