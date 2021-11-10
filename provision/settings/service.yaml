@@ -58,3 +58,4 @@ production:
     dirs:
       cache_folder: "/mnt/efs/fs1/caches"
       sr_folder: "/nfs/storage/sr"
+      input: "/nfs/storage/data/Crop_Field_Segmentation"

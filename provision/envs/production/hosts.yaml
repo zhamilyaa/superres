@@ -19,8 +19,8 @@ all:
       #      key_file: "~/Documents/egistic.pem"
       #      infra_volumes_dir: "/nfs/storage/{{project_name}}_infra_volumes"
       infra_volumes_dir: "/mnt/efs/fs1/{{project_name}}_infra_volumes"
-      volumes:
-        - "/nfs/storage/data/Crop_Field_Segmentation:/nfs/storage/data/Crop_Field_Segmentation"
+#      volumes:
+#        - "/nfs/storage/data/Crop_Field_Segmentation:/nfs/storage/data/Crop_Field_Segmentation"
 
   vars:
     env_name: "production"
