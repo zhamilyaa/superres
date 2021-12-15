@@ -123,7 +123,7 @@ def export_to_tiff(name, meta):
     with rio.open(name) as a:
         mask = a.read()
         mask = np.where(mask.sum(axis=0) >= 251*3, 0, 1)
-        res = ndimage.binary_erosion(mask, structure=np.ones((65, 65)))
+        res = ndimage.binary_erosion(mask, structure=np.ones((51, 51)))
         zh = np.where(res == 1, a.read(), 255)
         meta.update(nodata=255)
 
@@ -301,12 +301,12 @@ def do_sr(geometry, tci_path):
     merged_folder.mkdir(exist_ok=True)
     merge(folder_path=str(resulting_path), merged_path=merged_folder, hash_name=hash_name)
     logger.debug("MERGING EROSION")
-    # merged = f'{str(merged_folder)}/{str(hash_name)}.tiff'
-    # logger.debug(merged)
-    # with rio.open(str(merged)) as a:
-    #     meta = a.meta
-    # export_to_tiff(str(merged), meta)
-    # logger.debug("FINISHED")
+    merged = f'{str(merged_path)}/{str(hash_name)}.tiff'
+    logger.debug(merged)
+    with rio.open(str(merged)) as a:
+        meta = a.meta
+    export_to_tiff(str(merged), meta)
+    logger.debug("FINISHED")
     return dict(results=str(resulting_path))
 
 
