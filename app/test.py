@@ -1,11 +1,16 @@
 import shutil
+import sys
+
 import geopandas as gpd
 import shapely.wkt as shwkt
 import shapely.wkt
 import shapely.geometry as shg
 import os
+from itertools import product
 import rasterio as rio
-# from config import settings
+from rasterio import windows
+
+from config import settings
 from final import resolve_and_plot
 import numpy as np
 from scipy import ndimage
@@ -16,9 +21,10 @@ import fiona
 import rasterio.mask
 import hashlib
 from box import Box
+import pickle
 from rasterio.merge import merge as merge_tool
 from pathlib import Path
-from flask import Flask, render_template, request
+import json
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -27,11 +33,12 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
+from flask import Flask, render_template, request, render_template_string
 
 app = Flask(__name__)
 path = Path(__file__).absolute().parents[1]
-# storage_folder = Path(settings.PROJECT.dirs.sr_folder)
-storage_folder = path
+storage_folder = Path(settings.PROJECT.dirs.sr_folder)
+# storage_folder = path
 
 
 # CROP POLYGON GEOJSON FROM FP2 FILE
@@ -112,31 +119,21 @@ def katana(geometry, threshold, count=0):
 
 # EROSION
 def export_to_tiff(name, meta):
+
     with rio.open(name) as a:
         mask = a.read()
         mask = np.where(mask.sum(axis=0) >= 251*3, 0, 1)
-<<<<<<< HEAD
-        res = ndimage.binary_erosion(mask, structure=np.ones((55, 55)))
-=======
-        res = ndimage.binary_erosion(mask, structure=np.ones((65, 65)))
->>>>>>> 0f9cb9c8aff659c980ce3902f23c811048f0d9be
+        res = ndimage.binary_erosion(mask, structure=np.ones((51, 51)))
         zh = np.where(res == 1, a.read(), 255)
         meta.update(nodata=255)
 
-<<<<<<< HEAD
-    with rio.open('/home/zhamilya/PycharmProjects/superres/merged/druzhba_slm.tiff', 'w', **meta) as dst:
-        meta.update(nodata=255)
-=======
     with rio.open(name, 'w', **meta) as dst:
->>>>>>> 0f9cb9c8aff659c980ce3902f23c811048f0d9be
         dst.write(np.array(zh).astype(rio.uint8))
         print("salem", meta)
 
     return np.array(zh).astype(rio.uint8)
 
 
-<<<<<<< HEAD
-=======
 
 # def export_to_tiff_light(name, meta):
 #     with rio.open(name) as a:
@@ -151,7 +148,6 @@ def export_to_tiff(name, meta):
 #
 #     return np.array(zh)
 
->>>>>>> 0f9cb9c8aff659c980ce3902f23c811048f0d9be
 def export_to_tiff_light(name, meta):
     meta.update(nodata=255)
     with rio.open(name) as a:
@@ -165,13 +161,9 @@ def export_to_tiff_light(name, meta):
 
     return np.array(mask)
 
-<<<<<<< HEAD
-# MERGER WITH MEMORY
-=======
 
 
 
->>>>>>> 0f9cb9c8aff659c980ce3902f23c811048f0d9be
 def perform_merge(dss, method='last', **kwargs):
     num_datasets = len(dss)
     print("SHAPE", dss[0].shape)
@@ -190,15 +182,11 @@ def perform_merge(dss, method='last', **kwargs):
         mem_file.close()
     return Box(data=data, transform=transform)
 
-# FOR API
+
 @app.route('/')
 def form():
     return render_template('form.html')
 
-<<<<<<< HEAD
-# SIMPLE MERGER
-=======
->>>>>>> 0f9cb9c8aff659c980ce3902f23c811048f0d9be
 def merge(folder_path, merged_path, hash_name):
     folder = dict(results=str(folder_path))
     sm = folder['results']
@@ -208,10 +196,6 @@ def merge(folder_path, merged_path, hash_name):
     os.system(merging)
     os.remove(f'{merged_path}/{hash_name}.txt')
     return
-<<<<<<< HEAD
-
-=======
->>>>>>> 0f9cb9c8aff659c980ce3902f23c811048f0d9be
 
 def do_sr(geometry, tci_path):
     polygon = shapely.wkt.loads(geometry)
@@ -225,6 +209,9 @@ def do_sr(geometry, tci_path):
                  GDAL_MAX_RAW_BLOCK_CACHE_SIZE=128000000, VSI_CACHE=True, VSI_CACHE_SIZE=1073741824,
                  GDAL_FORCE_CACHING=True):
         with rio.open(cropped_tci_path) as inds:
+            # meta = inds.meta
+            # meta.update(nodata=255)
+            # export_to_tiff(cropped_tci_path,meta)
             bounds = inds.bounds
             geom = box(*bounds)
             print(geom)
@@ -233,6 +220,7 @@ def do_sr(geometry, tci_path):
             print(type(res))
             logger.info("KATANA ENDS")
             buff = []
+            arr = []
 
             for i in range(len(res)):
                 buffered = res[i].buffer(800, join_style=2)
@@ -244,6 +232,7 @@ def do_sr(geometry, tci_path):
             tiles_working_folder.mkdir(exist_ok=True)
             list_of_tiles = tiles_working_folder.joinpath(str(hash_name) + ".shp")
             gdf.to_file(list_of_tiles)
+            # list_of_tiles = Path(__file__).absolute().parents[1].joinpath(shapefile_name)
 
             shapefile = geopandas.read_file(list_of_tiles)
             print(shapefile)
@@ -262,12 +251,27 @@ def do_sr(geometry, tci_path):
                                  "transform": out_transform},
                                 )
 
+                # if not os.path.exists(hash_name):
+                #     os.mkdir(hash_name, mode=0o755)
+                # tiles_path = Path(__file__).absolute().parents[1].joinpath(hash_name)
+
                 with rasterio.open((str(tiles_working_folder) + '/tiles_') + str(i), "w", **out_meta) as dest:
                     dest.write(out_image)
 
                 print(f"RESOLUTION STARTS {i+1}/{len(shapes)}")
 
+                #     task = resolution_task.s("./tiles/tile_" + str(i))
+                #     tasks.append(task)
+                #
+                # result = celery.group(tasks).delay().get()
+                # logger.debug(len(result))
+                # return
+                #
+                #
+                #     # task = celery.group(resolution.s("./tiles/tile_" + str(i))).apply_async().get()
+                #     # print(task)
                 img = resolve_and_plot(tiles_working_folder.joinpath('tiles_' + str(i)))
+                # img = resolve_and_plot((str(tiles_path) + '/tiles_') + str(i))
                 print(f"RESOLUTION ENDS {i+1}/{len(shapes)}")
                 out_meta.update({"driver": "GTiff",
                                  "height": out_image.shape[1] * 4,
@@ -279,8 +283,11 @@ def do_sr(geometry, tci_path):
 
                 resulting_path = Path(storage_folder.joinpath(f'{hash_name}_results')).absolute()
                 resulting_path.mkdir(exist_ok=True)
+                # if not os.path.exists((str(tiles_path) + '_results')):
+                #     os.mkdir((str(tiles_path) + '_results'), mode=0o755)
                 with rio.open(os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tiff"), 'w',
                               **out_meta) as imgs:
+                    # img = np.where(img <= 4, 0, img)
                     imgs.write(img)
                 new_img = export_to_tiff(
                     os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tiff"), out_meta)
@@ -293,46 +300,26 @@ def do_sr(geometry, tci_path):
     merged_folder = Path(storage_folder.joinpath('merged')).absolute()
     merged_folder.mkdir(exist_ok=True)
     merge(folder_path=str(resulting_path), merged_path=merged_folder, hash_name=hash_name)
-<<<<<<< HEAD
-=======
     logger.debug("MERGING EROSION")
-    # merged = f'{str(merged_folder)}/{str(hash_name)}.tiff'
-    # logger.debug(merged)
-    # with rio.open(str(merged)) as a:
-    #     meta = a.meta
-    # export_to_tiff(str(merged), meta)
-    # logger.debug("FINISHED")
->>>>>>> 0f9cb9c8aff659c980ce3902f23c811048f0d9be
+    merged = f'{str(merged_path)}/{str(hash_name)}.tiff'
+    logger.debug(merged)
+    with rio.open(str(merged)) as a:
+        meta = a.meta
+    export_to_tiff(str(merged), meta)
+    logger.debug("FINISHED")
     return dict(results=str(resulting_path))
 
 
 @app.route('/app/v1/perform_sr', methods=['POST'])
 def perform_sr():
+    print("hello zhamilya")
     form_data = request.json
+    print("here i am")
     return do_sr(**form_data)
 
 
 def main():
     print("hello")
-    img = '/home/zhamilya/PycharmProjects/superres/merged/852409c8704523a20c60fae1736e3fb0.tiff'
-    with rio.open(img) as dst:
-        meta = dst.meta
-        print(meta)
-    export_to_tiff(img,meta)
-    return
-    pic = '/home/zhamilya/PycharmProjects/superres/T42UUC_20211017T063851_TCI_10m.tiff'
-    geom = 'MultiPolygon (((7435498.48726535029709339 6773251.64449257683008909, 7435498.48726535029709339 6801492.28109663352370262, 7455282.34571738168597221 6801492.28109663352370262, 7455282.34571738168597221 6773251.64449257683008909, 7435498.48726535029709339 6773251.64449257683008909)))'
-    do_sr(geom, pic)
-    return
-    geometry = 'Polygon ((7417436.85963319055736065 7145353.301345637999475, 7471776.68982749152928591 7145131.84951937757432461, 7472054.6545960009098053 7101019.78495781496167183, 7415074.32608008477836847 7099490.99179207906126976, 7417436.85963319055736065 7145353.301345637999475))'
-    # geometry = 'Polygon ((5680098.83634697925299406 6646973.86161190457642078, 5651956.15587953198701143 6621402.15605905745178461, 5680237.8743909802287817 6595622.09364020824432373, 5709839.84206323698163033 6620985.23513021506369114, 5680098.83634697925299406 6646973.86161190457642078))'
-    tci_path='/home/zhamilya/PycharmProjects/superres/T41UQV_20211015T064839_TCI_10m.jp2'
-    # hash_name = hashlib.md5((str(tci_path)+str(geometry)).encode('utf-8')).hexdigest()
-
-   # merge(str('/home/zhamilya/PycharmProjects/superres/d99438337b4a9aea8e395106441db73a_results'), str('/home/zhamilya/PycharmProjects/superres/merged'), hash_name)
-
-    do_sr(geometry, tci_path)
-    return
     # geometry = 'MultiPolygon (((9179005.3084421195089817 5663138.53135722782462835, 9179728.39327027834951878 5664965.2719757342711091, 9184637.75868251360952854 5662910.1887799147516489, 9187834.55476490035653114 5659599.22140887193381786, 9192591.69179225899279118 5654613.74180419929325581, 9192553.63469604030251503 5652178.087646191008389, 9190194.09473047032952309 5651683.34539534524083138, 9187035.35574430227279663 5654423.4563231049105525, 9185436.9577031098306179 5657696.36659792810678482, 9182049.87613962963223457 5660055.90656349901109934, 9180223.13552112318575382 5661996.81847066152840853, 9179005.3084421195089817 5663138.53135722782462835)))'
     # tci_path = '/home/zhamilya/PycharmProjects/superres/T44TPR_20210926T052651_TCI.jp2'
     # do_sr(geometry, tci_path)

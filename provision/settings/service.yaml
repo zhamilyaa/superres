@@ -43,7 +43,7 @@ default:
       result_expires: 43200
       worker_prefetch_multiplier: 3
       worker_max_tasks_per_child: 100
-      result_backend_transport_options: { visibility_timeout: 86400 }
+      result_backend_transport_options: { v isibility_timeout: 86400 }
 
 development:
   PROJECT:
