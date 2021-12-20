@@ -1,0 +1,47 @@
+development:
+  CELERY:
+    base_name: superres
+    config:
+      accept_content:
+      - json
+      - pickle
+      broker_url: pyamqp://superres:superres@superres_rabbitmq
+      enable_utc: true
+      imports:
+      - app.tasks.do_something
+      - app.tasks.new_tasks
+      - app.tasks.resolution
+      result_backend: redis://:superres@superres_redis:6379/0
+      result_backend_transport_options:
+        visibility_timeout: 86400
+      result_expires: 43200
+      result_serializer: pickle
+      task_acks_late: false
+      task_create_missing_queues: true
+      task_default_priority: 5
+      task_inherit_parent_priority: true
+      task_queue_max_priority: 10
+      task_serializer: pickle
+      timezone: Asia/Almaty
+      worker_cancel_long_running_tasks_on_connection_loss: true
+      worker_max_tasks_per_child: 100
+      worker_prefetch_multiplier: 3
+  DB:
+    database: superres
+    host: superres_db
+    password: superres
+    username: superres
+  PROJECT:
+    dirs:
+      cache_folder: /Users/zhamilya/Desktop/storage/caches
+      sr_folder: /Users/zhamilya/Desktop/storage/sr
+    name: superres
+  RABBITMQ:
+    hostname: superres_rabbitmq
+    password: superres
+    port: '5672'
+    user: superres
+  REDIS:
+    decode_responses: true
+    host: superres_redis
+    password: superres
