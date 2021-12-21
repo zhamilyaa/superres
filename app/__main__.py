@@ -63,15 +63,18 @@ def crop(polygon: shg.Polygon, image_path, image_crs):
     crop_alpha = f'gdalwarp -overwrite -cutline {geom_path} -crop_to_cutline -r cubic -dstalpha -t_srs EPSG:3857 {converted_image_path} {cropped_image_path}'
     os.system(crop_alpha)
 
-    with rasterio.open(cropped_image_path) as src:
-        meta = src.meta
-
-    meta.update(nodata=255)
-    export_to_tiff_light(cropped_image_path, meta)
+    # with rasterio.open(cropped_image_path) as src:
+    #     meta = src.meta
+    #
+    # meta.update(nodata=255)
+    # export_to_tiff_light(cropped_image_path, meta)
 
     processed_path = tiles_folder.joinpath(f'{new_name}_final.tiff')
     change_epsg = f'gdal_translate -b 1 -b 2 -b 3 -of GTiff -a_srs EPSG:3857 {cropped_image_path} {processed_path}'
     os.system(change_epsg)
+    with rasterio.open(str(processed_path)) as inds:
+        meta = inds.meta
+        logger.debug(meta)
     shutil.rmtree(working_folder, ignore_errors=True)
     return processed_path
 
@@ -122,7 +125,7 @@ def export_to_tiff(name, meta):
 
     with rio.open(name) as a:
         mask = a.read()
-        mask = np.where(mask.sum(axis=0) >= 251*3, 0, 1)
+        mask = np.where(mask.sum(axis=0) >= 300*3, 0, 1)
         res = ndimage.binary_erosion(mask, structure=np.ones((65, 65)))
         zh = np.where(res == 1, a.read(), 255)
         meta.update(nodata=255)
@@ -204,12 +207,15 @@ def do_sr(geometry, tci_path):
     cropped_tci_path = crop(polygon, tci_path, crs)
     tasks = list()
     hash_name = hashlib.md5((str(tci_path)+str(polygon)).encode('utf-8')).hexdigest()
+    logger.debug("crop check")
+
 
     with rio.Env(OGR_SQLITE_CACHE=1024, GDAL_CACHEMAX=128, GDAL_SWATH_SIZE=128000000,
                  GDAL_MAX_RAW_BLOCK_CACHE_SIZE=128000000, VSI_CACHE=True, VSI_CACHE_SIZE=1073741824,
                  GDAL_FORCE_CACHING=True):
         with rio.open(cropped_tci_path) as inds:
-            # meta = inds.meta
+            check_meta = inds.meta
+            print("here is meta", check_meta)
             # meta.update(nodata=255)
             # export_to_tiff(cropped_tci_path,meta)
             bounds = inds.bounds
@@ -250,7 +256,7 @@ def do_sr(geometry, tci_path):
                                  "width": out_image.shape[2],
                                  "transform": out_transform},
                                 )
-
+                print("here is out_meta", out_meta)
                 # if not os.path.exists(hash_name):
                 #     os.mkdir(hash_name, mode=0o755)
                 # tiles_path = Path(__file__).absolute().parents[1].joinpath(hash_name)
@@ -278,6 +284,7 @@ def do_sr(geometry, tci_path):
                                  "width": out_image.shape[2] * 4,
                                  "transform": out_transform * out_transform.scale(1 / 4),
                                  "count": 3})
+
                 logger.debug(img.shape)
                 logger.debug(f"META:{out_meta}")
 
@@ -301,12 +308,12 @@ def do_sr(geometry, tci_path):
     merged_folder.mkdir(exist_ok=True)
     merge(folder_path=str(resulting_path), merged_path=merged_folder, hash_name=hash_name)
     logger.debug("MERGING EROSION")
-    # merged = f'{str(merged_folder)}/{str(hash_name)}.tiff'
-    # logger.debug(merged)
-    # with rio.open(str(merged)) as a:
-    #     meta = a.meta
-    # export_to_tiff(str(merged), meta)
-    # logger.debug("FINISHED")
+    merged = f'{str(merged_folder)}/{str(hash_name)}.tiff'
+    logger.debug(merged)
+    with rio.open(str(merged)) as a:
+        meta = a.meta
+    export_to_tiff(str(merged), meta)
+    logger.debug("FINISHED")
     return dict(results=str(resulting_path))
 
 
