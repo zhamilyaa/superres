@@ -5,13 +5,14 @@ docker run  \
 	--volume "/etc/passwd:/etc/passwd:ro"  \
 	--volume "/etc/shadow:/etc/shadow:ro"  \
 	--volume "/etc/sudoers.d:/etc/sudoers.d:ro"  \
-	--env ENV_FOR_DYNACONF=development  \
+	--env ENV_FOR_DYNACONF=production  \
 	--env C_FORCE_ROOT=1  \
-	--env MPLCONFIGDIR=/Users/zhamilya/Desktop/storage/caches  \
+	--env MPLCONFIGDIR=/mnt/efs/fs1/caches  \
 	--env GDAL_CACHEMAX=256  \
 	--env NUMEXPR_MAX_THREADS=8  \
 	--network superres_network  \
-	--volume /Users/zhamilya/Desktop/storage/caches:/Users/zhamilya/Desktop/storage/caches  \
-	--volume /Users/zhamilya/Desktop/storage/sr:/Users/zhamilya/Desktop/storage/sr  \
-	--volume /home/zhamilya/PycharmProjects/superres:/home/zhamilya/PycharmProjects/superres  \
-	--workdir /home/zhamilya/PycharmProjects/superres "$@"
+	--volume /mnt/efs/fs1/caches:/mnt/efs/fs1/caches  \
+	--volume /nfs/storage/sr:/nfs/storage/sr  \
+	--volume /nfs/storage/data/Crop_Field_Segmentation:/nfs/storage/data/Crop_Field_Segmentation  \
+	--volume /home/ubuntu/egistic/superres:/home/ubuntu/egistic/superres  \
+	--workdir /home/ubuntu/egistic/superres "$@"

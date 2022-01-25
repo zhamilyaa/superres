@@ -48,7 +48,6 @@ class Resolution(Task):
         super(Resolution, self).__init__()
         self.model_path = Path(__file__).absolute().parents[2].joinpath('gan_generator.h5')
 
-
     def run(self, image):
         gan_generator = generator()
         gan_generator.load_weights(self.model_path)
