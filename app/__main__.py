@@ -22,6 +22,7 @@ import shutil
 import sys
 import time
 
+from app.celery_worker import make_celery
 from config import settings
 from final import resolve_and_plot
 
@@ -33,6 +34,14 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 app = Flask(__name__)
+
+app.config.update(
+    CELERY_BROKER_URL=settings.CELERY.config.broker_url,
+    CELERY_RESULT_BACKEND=settings.CELERY.config.result_backend
+)
+
+celery = make_celery(app)
+
 path = Path(__file__).absolute().parents[1]
 storage_folder = Path(settings.PROJECT.dirs.sr_folder)
 # storage_folder = path
@@ -187,6 +196,7 @@ def perform_merge(dss, method='last', **kwargs):
 def form():
     return render_template('form.html')
 
+
 def merge(folder_path, merged_path, hash_name):
     folder = dict(results=str(folder_path))
     sm = folder['results']
@@ -198,42 +208,24 @@ def merge(folder_path, merged_path, hash_name):
     return
 
 
-def do_sr(geometry, tci_path):
+@celery.task()
+def do_sr(geometry, tci_path, result_folder=""):
     polygon = shwkt.loads(geometry)
-    
-    logger.debug(f"TCI path: {tci_path}")
-    print('/'.join(tci_path.split('/')[:-2]))
-    print(os.listdir('/'.join(tci_path.split('/')[:-2])))
-    
-    while not os.path.exists(tci_path):
-        
-        time.sleep(5)
         
     with rasterio.open(tci_path) as ds:
         crs = ds.crs
         
     cropped_tci_path = crop(polygon, tci_path, crs)
-    tasks = list()
     hash_name = hashlib.md5((str(tci_path)+str(polygon)).encode('utf-8')).hexdigest()
-    logger.debug("crop check")
 
     with rasterio.Env(OGR_SQLITE_CACHE=1024, GDAL_CACHEMAX=128, GDAL_SWATH_SIZE=128000000,
                  GDAL_MAX_RAW_BLOCK_CACHE_SIZE=128000000, VSI_CACHE=True, VSI_CACHE_SIZE=1073741824,
                  GDAL_FORCE_CACHING=True):
         with rasterio.open(cropped_tci_path) as inds:
-            check_meta = inds.meta
-            print("here is meta", check_meta)
-            # meta.update(nodata=255)
-            # export_to_tiff(cropped_tci_path,meta)
-            bounds = inds.bounds
-            geom = shg.box(*bounds)
-            print(geom)
             logger.info("KATANA STARTS")
             res = katana(polygon, threshold=10000)
-            print(type(res))
             logger.info("KATANA ENDS")
             buff = []
-            arr = []
 
             for i in range(len(res)):
                 buffered = res[i].buffer(800, join_style=2)
@@ -245,13 +237,9 @@ def do_sr(geometry, tci_path):
             tiles_working_folder.mkdir(exist_ok=True)
             list_of_tiles = tiles_working_folder.joinpath(str(hash_name) + ".shp")
             gdf.to_file(list_of_tiles)
-            # list_of_tiles = Path(__file__).absolute().parents[1].joinpath(shapefile_name)
-
-            shapefile = gpd.read_file(list_of_tiles)
-            print(shapefile)
+            
             with fiona.open(list_of_tiles, "r") as shapefile:
                 shapes = [feature["geometry"] for feature in shapefile]
-            print(len(shapes))
 
             for i in range(len(shapes)):
                 with rasterio.open(cropped_tci_path) as src:
@@ -263,29 +251,16 @@ def do_sr(geometry, tci_path):
                                  "width": out_image.shape[2],
                                  "transform": out_transform},
                                 )
-                print("here is out_meta", out_meta)
-                # if not os.path.exists(hash_name):
-                #     os.mkdir(hash_name, mode=0o755)
-                # tiles_path = Path(__file__).absolute().parents[1].joinpath(hash_name)
 
                 with rasterio.open((str(tiles_working_folder) + '/tiles_') + str(i), "w", **out_meta) as dest:
                     dest.write(out_image)
 
                 print(f"RESOLUTION STARTS {i+1}/{len(shapes)}")
 
-                #     task = resolution_task.s("./tiles/tile_" + str(i))
-                #     tasks.append(task)
-                #
-                # result = celery.group(tasks).delay().get()
-                # logger.debug(len(result))
-                # return
-                #
-                #
-                #     # task = celery.group(resolution.s("./tiles/tile_" + str(i))).apply_async().get()
-                #     # print(task)
                 img = resolve_and_plot(tiles_working_folder.joinpath('tiles_' + str(i)))
-                # img = resolve_and_plot((str(tiles_path) + '/tiles_') + str(i))
+                
                 print(f"RESOLUTION ENDS {i+1}/{len(shapes)}")
+                
                 out_meta.update({"driver": "GTiff",
                                  "height": out_image.shape[1] * 4,
                                  "width": out_image.shape[2] * 4,
@@ -297,18 +272,16 @@ def do_sr(geometry, tci_path):
 
                 resulting_path = Path(storage_folder.joinpath(f'{hash_name}_results')).absolute()
                 resulting_path.mkdir(exist_ok=True)
-                # if not os.path.exists((str(tiles_path) + '_results')):
-                #     os.mkdir((str(tiles_path) + '_results'), mode=0o755)
+                
                 with rasterio.open(os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tiff"), 'w',
                               **out_meta) as imgs:
-                    # img = np.where(img <= 4, 0, img)
                     imgs.write(img)
-                new_img = export_to_tiff(
-                    os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tiff"), out_meta)
+                    
+                export_to_tiff(os.path.join(resulting_path, "resolved_tile_" + str(i) + ".tiff"), out_meta)
 
     shutil.rmtree(tiles_working_folder, ignore_errors=True)
     shutil.rmtree(storage_folder.joinpath(str(hash_name)+'_cropped_tci'))
-    logger.debug("DELETED  TCI FOLDER")
+    logger.debug("DELETED TCI FOLDER")
     logger.debug("DELETED SHAPE TILES FOLDER")
     logger.debug("MERGING")
     merged_folder = Path(storage_folder.joinpath('merged')).absolute()
@@ -317,23 +290,33 @@ def do_sr(geometry, tci_path):
     logger.debug("MERGING EROSION")
     merged = f'{str(merged_folder)}/{str(hash_name)}.tiff'
     logger.debug(merged)
+    
     with rasterio.open(str(merged)) as a:
         meta = a.meta
     export_to_tiff(str(merged), meta)
+    
+    if len(result_folder) != 0:
+        final_folder = f'{str(merged_folder)}/{result_folder}'
+        
+        if not os.path.exists(final_folder):
+            os.mkdir(final_folder)
+
+        final_path = f'{final_folder}/{str(hash_name)}.tiff'
+        os.rename(str(merged), final_path)
+    
     logger.debug("FINISHED")
+    
     return dict(results=str(resulting_path))
 
 
 @app.route('/app/v1/perform_sr', methods=['POST'])
 def perform_sr():
-    print("hello zhamilya")
+    logger.info("\nNew task is received!\n")
     form_data = request.json
-    print("here i am")
-    return do_sr(**form_data)
+    do_sr(**form_data).forget()
 
 
 def main():
-    print("hello")
     # geometry = 'MultiPolygon (((9179005.3084421195089817 5663138.53135722782462835, 9179728.39327027834951878 5664965.2719757342711091, 9184637.75868251360952854 5662910.1887799147516489, 9187834.55476490035653114 5659599.22140887193381786, 9192591.69179225899279118 5654613.74180419929325581, 9192553.63469604030251503 5652178.087646191008389, 9190194.09473047032952309 5651683.34539534524083138, 9187035.35574430227279663 5654423.4563231049105525, 9185436.9577031098306179 5657696.36659792810678482, 9182049.87613962963223457 5660055.90656349901109934, 9180223.13552112318575382 5661996.81847066152840853, 9179005.3084421195089817 5663138.53135722782462835)))'
     # tci_path = '/home/zhamilya/PycharmProjects/superres/T44TPR_20210926T052651_TCI.jp2'
     # do_sr(geometry, tci_path)
@@ -341,11 +324,9 @@ def main():
     # cache_folder = Path(settings.PROJECT.dirs.cache_folder)
     # data_folder = Path(settings.PROJECT.dirs.data_folder)
     # print(cache_folder)
-
     # return
     app.run(host='0.0.0.0', port=5000)
     return
-    logger.debug('Start')
     polygon = "./hello.geojson"
     image = "./T42UVA_20210825T062631_TCI_10m.jp2"
     in_path, input_filenamee = crop(polygon, image)
@@ -464,4 +445,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    
