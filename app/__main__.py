@@ -60,7 +60,7 @@ def crop(polygon: shg.Polygon, image_path, image_crs):
 
     converted_image_path = working_folder.joinpath(f'{new_name}.tiff')
     write = f'gdalwarp -overwrite -r cubic {str(image_path)} {converted_image_path} -s_srs {image_crs} -t_srs {image_crs}'
-    print(write)
+    logger.debug(f"{write}")
     os.system(write)
 
     tiles_folder = Path(storage_folder.joinpath(str(new_name)+'_cropped_tci')).absolute()
@@ -138,52 +138,37 @@ def export_to_tiff(name, meta):
 
     with rasterio.open(name, 'w', **meta) as dst:
         dst.write(np.array(zh).astype(rasterio.uint8))
-        print("salem", meta)
 
     return np.array(zh).astype(rasterio.uint8)
 
-
-
-# def export_to_tiff_light(name, meta):
-#     with rasterio.open(name) as a:
-#         mask = a.read()
-#         mask = np.where(mask.sum(axis=0) == 0, 0, 1)
-#         res = ndimage.binary_erosion(mask, structure=np.ones((23, 23)))
-#         zh = np.where(res == 1, a.read(), 255)
-#
-#     with rasterio.open(name, 'w', **meta) as dst:
-#         print(meta)
-#         dst.write(np.array(zh))
-#
-#     return np.array(zh)
 
 def export_to_tiff_light(name, meta):
     meta.update(nodata=255)
     with rasterio.open(name) as a:
         mask = a.read()
-        print(mask.shape)
+        logger.debug(f"Mask shape: {mask.shape}")
         mask = np.where(mask.sum(axis=0) == 0, 255, a.read())
 
     with rasterio.open(name, 'w', **meta) as dst:
-        print(meta)
+        logger.debug(f"Meta: {meta}")
         dst.write(np.array(mask))
 
     return np.array(mask)
 
 
-
-
 def perform_merge(dss, method='last', **kwargs):
     num_datasets = len(dss)
-    print("SHAPE", dss[0].shape)
+    logger.debug(f"Shape: {dss[0].shape}")
     mem_files = [rasterio.MemoryFile() for _ in range(num_datasets)]
     mem_datasets = [mem_file.open(**Box(ds.meta) + dict(count=3, driver='GTiff'))
                     for mem_file, ds in zip(mem_files, dss)]
-    print("MEM DATASETS", type(mem_datasets[0]))
+    
+    logger.debug(f"Type of mem_datasets: {type(mem_datasets[0])}")
+    
     for i, (mem_dataset, ds) in enumerate(zip(mem_datasets, dss)):
-        print(f'Reading data {i + 1}/{num_datasets} with shape {ds.shape}')
+        logger.debug(f'Reading data {i + 1}/{num_datasets} with shape {ds.shape}')
         data_ = ds.read()
-        print(f'Writing to memory {i + 1}/{num_datasets}')
+        logger.debug(f'Writing to memory {i + 1}/{num_datasets}')
         mem_dataset.write(data_)
     data, transform = rasterio.merge.merge(dss, method=method, **kwargs)
     for mem_dataset, mem_file in zip(mem_datasets, mem_files):
@@ -206,6 +191,14 @@ def merge(folder_path, merged_path, hash_name):
     os.system(merging)
     os.remove(f'{merged_path}/{hash_name}.txt')
     return
+
+
+@app.route('/app/v1/perform_sr', methods=['POST'])
+def perform_sr():
+    logger.info("\nNew task is received!\n")
+    form_data = request.json
+    result = do_sr(**form_data).get()
+    return result
 
 
 @celery.task()
@@ -255,11 +248,11 @@ def do_sr(geometry, tci_path, result_folder=""):
                 with rasterio.open((str(tiles_working_folder) + '/tiles_') + str(i), "w", **out_meta) as dest:
                     dest.write(out_image)
 
-                print(f"RESOLUTION STARTS {i+1}/{len(shapes)}")
+                logger.info(f"RESOLUTION STARTS {i+1}/{len(shapes)}")
 
                 img = resolve_and_plot(tiles_working_folder.joinpath('tiles_' + str(i)))
                 
-                print(f"RESOLUTION ENDS {i+1}/{len(shapes)}")
+                logger.info(f"RESOLUTION ENDS {i+1}/{len(shapes)}")
                 
                 out_meta.update({"driver": "GTiff",
                                  "height": out_image.shape[1] * 4,
@@ -307,13 +300,6 @@ def do_sr(geometry, tci_path, result_folder=""):
     logger.debug("FINISHED")
     
     return dict(results=str(resulting_path))
-
-
-@app.route('/app/v1/perform_sr', methods=['POST'])
-def perform_sr():
-    logger.info("\nNew task is received!\n")
-    form_data = request.json
-    do_sr(**form_data).forget()
 
 
 def main():
